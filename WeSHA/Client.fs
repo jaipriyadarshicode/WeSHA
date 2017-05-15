@@ -17,7 +17,7 @@ open WebSharper.ChartJs
 
 [<JavaScript>]
 module Client =
-
+    let chartBufferSize=50
     // Finally, we put it all together...
     let TodoExample insert =
         tableAttr [attr.``class`` "table table-hover"] [
@@ -36,7 +36,7 @@ module Client =
         }
 
         static member Create q=
-            let data = [for x in 0.0 .. 9.0 -> (0.0)]
+            let data = [for x in 0 .. chartBufferSize-1 -> (0.0)]
             {   
                 Key=Key.Fresh();
                 queue = q;
@@ -45,12 +45,12 @@ module Client =
                 values = let queue=Queue<double>()
                          data|>Seq.iter (fun entry -> queue.Enqueue(entry))
                          queue
-                chart = Charting.Chart.Line(data)
+                chart = Charting.Chart.Line(data).WithFillColor(Color.Name "white");
             }
         member x.UpdateValue value=
             x.value.Value<-value
             x.values.Enqueue(value)
-            if x.values.Count > 10 then
+            if x.values.Count > chartBufferSize then
                 x.values.Dequeue()|>ignore
             x.values|>Seq.iteri (fun ind entry -> x.chart.UpdateData(ind, fun e -> entry))
             x.source.Trigger value
@@ -63,27 +63,46 @@ module Client =
     let renderChart (src:Event<double>)= 
         let chart = LiveChart.Line(src.Publish)
         //let c = ChartJs.LineChartConfiguration()
-        Renderers.ChartJs.Render(chart, (* Config = c, *) Window = 10)
+        Renderers.ChartJs.Render(chart(* , Config = c, Window = 10*) )
  (*   let updateLineChart (chart:Charts.LineChart) value = 
         let nEntries=chart.DataSet.JS|>Seq.length
         let listData=chart.DataSet|>Seq.l
         chart.DataSet
         |>Seq.iteri (fun (ind,entry) ->chart.UpdateData(ind,if ind = listData.Count-9 then value else snd listData[ind])|>ignore) *)
 
-        
-    let RenderHAItem (haItem:HAMessageItem) =
+    let mutable clientWidth = 0.0
+    let RenderHAItem (haItem:HAMessageItem) =    
+        let renderChart =     
+            Console.Log ("renderChart:"+clientWidth.ToString())
+            Renderers.ChartJs.Render(haItem.chart , Size = Size((int)(clientWidth*3.0/4.0), 200))
         tr [
-            td [
-                   divAttr [attr.``class`` "bigvalue"] [
-                        textView  (haItem.value.View |> View.Map (fun s -> s.ToString()))
-                   ]
-            ]
-            td [
-                   //renderChart haItem.source
-                   Renderers.ChartJs.Render(haItem.chart (*, Size = Size(500, 350)*))
-            ]
-
+            div[
+                divAttr [attr.``class`` "rectangle"][
+                    td [
+                           divAttr [attr.``class`` "bigvalue"] [
+                                textView  (haItem.value.View |> View.Map (fun s -> s.ToString()))
+                           ]
+                    ]
+                    td [
+                            divAttr [attr.``class`` "chart"]
+                           //renderChart haItem.source
+                           [  
+                             renderChart
+                           ]
+                    ]
+                 ]
+             ]
         ]
+    let processQueueMessage queue value = 
+        let haItem=
+            match haItems.HAItems.TryFind (fun item->item.queue = queue) with
+            | None -> let newItem=HAMessageItem.Create queue
+                      haItems.HAItems.Add  newItem
+                      Console.Log ("New item")
+                      newItem
+            | Some(found)->found
+        Console.Log ("Value added:"+value.ToString())
+        haItem.UpdateValue value
     // ...and run it.
     let procSockets (endpoint : Endpoint<Server.S2CMessage, Server.C2SMessage>) (status:Elt) =
         async {
@@ -95,15 +114,7 @@ module Client =
                             match data with
                             | Server.ResponseString x ->  status.Text <-  (state.ToString() + x)
                             | Server.ResponseValue (queue,value) -> Console.Log ("Message received:" + queue+" " + value.ToString())
-                                                                    let haItem=
-                                                                        match haItems.HAItems.TryFind (fun item->item.queue = queue) with
-                                                                        | None -> let newItem=HAMessageItem.Create queue
-                                                                                  haItems.HAItems.Add  newItem
-                                                                                  Console.Log ("New item")
-                                                                                  newItem
-                                                                        | Some(found)->found
-                                                                    Console.Log ("Value added:"+value.ToString())
-                                                                    haItem.UpdateValue value
+                                                                    processQueueMessage queue value
                                                                     //haItem.source.Trigger value
                             return (state + 1)
                         | Close ->
@@ -127,14 +138,29 @@ module Client =
         let listMessages=
             ListModel.View haItems.HAItems
             |> Doc.BindSeqCachedBy (fun m -> m.Key) (RenderHAItem)
+        
         TodoExample (div[
-                          status                        
-                          listMessages
-                        ])
+                                  status                        
+                                  listMessages
+                                  
+                                  //.OnResizeView(fun arg1 arg2 arg3 -> Console.Log "OnResizeView")
+                                  //.OnResize(fun arg1 arg->Console.Log "OnResize")
+                        ].OnAfterRender(fun (el) -> 
+                                            clientWidth <- el.ClientWidth
+                                            async {
+                                                Console.Log "Server.GetAllChannels()"
+                                                let! allQueues=Server.GetAllChannels("bla")
+                                                allQueues
+                                                |>Array.iter (fun queue -> async {let! values = Server.GetValues queue chartBufferSize 
+                                                                                  values |>Array.iter (fun value -> Console.Log "old value"
+                                                                                                                    processQueueMessage queue value)
+                                                                                  }|>Async.Start)
+                                                                          // values |>Array.iter (fun value -> processQueueMessage queue value))
+                                            }|> Async.Start
+
+                                       )
+                        )
 
 
-    let Description () =
-        div [
-            text "A to-do list application."
-        ]
+
 

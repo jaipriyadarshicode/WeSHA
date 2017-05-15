@@ -4,6 +4,7 @@ open WebSharper
 
 
 open System
+open System.Collections.Generic
 open RabbitMQ.Client
 open RabbitMQ.Client.Events
 open System.Text
@@ -11,6 +12,7 @@ open WebSharper
 open WebSharper.Community.Suave.WebSocket.Server
 
 module Server =
+
 
     type [<JavaScript; NamedUnionCases>]
         C2SMessage =
@@ -28,6 +30,32 @@ module Server =
         | ClientConnected of (S2CMessage -> Async<unit>) * AsyncReplyChannel<System.Guid>
         | ClientDisconnected of System.Guid
         | Broadcast of S2CMessage
+    let queueMsg=Queue<S2CMessage>()
+
+    [<Rpc>]
+    let GetAllChannels (input:string) =
+        async {
+            return
+                queueMsg.ToArray()
+                |> Array.map (fun entry -> match entry with
+                                           | ResponseValue (key,value) -> key)
+                |> Array.distinct
+        }
+    [<Rpc>]
+    let GetValues (queue:string) count=
+        async {
+                let queueStart=queue.Substring(0,queue.Length-3)
+                let res=
+                    queueMsg.ToArray()
+                    |> Array.map (fun entry -> match entry with
+                                               | ResponseValue (key,value) -> (key,value))
+                    |>Array.filter (fun (key,value) -> key.StartsWith(queueStart))
+                    |>Array.map (fun (key,value) -> value)
+                    |>Array.skip (max 0 (queueMsg.Count - count))
+                    |>Array.take(min count queueMsg.Count)
+                return res
+
+        }
 
     let ConnectionsAgent = MailboxProcessor<ConnectionsAgentMessage>.Start(fun inbox ->
         let rec loop connections = async {
@@ -63,6 +91,9 @@ module Server =
         try
             let srvMessage=ResponseValue (queue,System.Double.Parse(message))
             ConnectionsAgent.Post (Broadcast srvMessage)
+            queueMsg.Enqueue(srvMessage)
+            if queueMsg.Count > 1000 then 
+                queueMsg.Dequeue()|>ignore
         with
         | ex -> Console.WriteLine(ex.Message)
 

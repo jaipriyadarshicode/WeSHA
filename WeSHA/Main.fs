@@ -95,7 +95,7 @@ module SelfHostedServer =
         channel.QueueDeclare(queue=queue, durable= true, exclusive= false, autoDelete= true, arguments= null) |>ignore
         //channel.QueueDeclare() |>ignore
         //let queueName = channel.QueueDeclare().QueueName
-        channel.QueueBind(queue= queue, exchange= "topic_logs", routingKey= "#");
+        channel.QueueBind(queue= queue, exchange= "amq.topic", routingKey= "#");
         let consumer = new EventingBasicConsumer(channel)
         consumer.Received.AddHandler((fun model ea ->
                                 let body = ea.Body
