@@ -104,7 +104,7 @@ module SelfHostedServer =
                                 Server.processQueueMessage ea.RoutingKey message
                         )) 
         //channel.BasicConsume(queue= "mqtt-subscription-MQTToolqos1", noAck= true, consumer= consumer)  |>ignore
-        channel.BasicConsume(queue=queue, noAck= true, consumer= consumer)  |>ignore
+        channel.BasicConsume(queue=queue, consumer= consumer)  |>ignore
 
 
 
