@@ -9,15 +9,15 @@ Project in early development stage
 ### Install WebSharper
 * Download and install WebSharper. Use the link http://websharper.com/downloads
 * To begin download, click on “WebSharper 4 beta” <br/>
-  ![](docs/images/WebSharperInstallLocPic.JPG)
+  ![](docs/images/WebSharperInstallLocPic.jpg)
 * After Installation, WebSharper will automatically add as extension to your Visual studio.
 
 ### Install RabbitMQ
 * Go to RabbitMQ installation webpage at https://www.rabbitmq.com/install-windows.html and download the installer file <br/>
-  ![](docs/images/RabbitMQInstallLocPic.JPG)
+  ![](docs/images/RabbitMQInstallLocPic.jpg)
 * Firstly, Install Erlang Windows Binary File by clicking on the link given on the page  and then run rabbitmq-server-3.6.10.exe     
   downloaded file <br/>
-  ![](docs/images/RabbitMQInstallInstPic.JPG)
+  ![](docs/images/RabbitMQInstallInstPic.jpg)
 * Enable the RabbitMQ management plugin:
   * Go to the installation folder location of RabbitMQ Server
   * Then, follow the path RabbitMQ Server\rabbitmq_server-3.6.10\sbin
