@@ -86,27 +86,28 @@ module SelfHostedServer =
             | [| |] -> defIPAddress, "192.168.2.116"
             | _ -> eprintfn "Usage: WeSHA IP_SERVER IP_AMQP "; exit 1
         Console.WriteLine("ipServer:"+ipServer+" ipAMQP:"+ipAMQP)
-        let factory = new ConnectionFactory(HostName = ipAMQP, UserName="guest1",Password="guest1")
-        //let factory = new ConnectionFactory(HostName = "localhost", UserName="guest1",Password="guest1")
-        let connection = factory.CreateConnection()
-        let channel = connection.CreateModel()
-        channel.ExchangeDeclare("topic_logs","topic")
-        let queue="mqtt-subscription-MQTToolqos1"
-        channel.QueueDeclare(queue=queue, durable= true, exclusive= false, autoDelete= true, arguments= null) |>ignore
-        //channel.QueueDeclare() |>ignore
-        //let queueName = channel.QueueDeclare().QueueName
-        channel.QueueBind(queue= queue, exchange= "amq.topic", routingKey= "#");
-        let consumer = new EventingBasicConsumer(channel)
-        consumer.Received.AddHandler((fun model ea ->
-                                let body = ea.Body
-                                let message = Encoding.UTF8.GetString(body)
-                                Console.WriteLine(" [x] Received {0}  {1}",ea.RoutingKey, message)
-                                Server.processQueueMessage ea.RoutingKey message
-                        )) 
-        //channel.BasicConsume(queue= "mqtt-subscription-MQTToolqos1", noAck= true, consumer= consumer)  |>ignore
-        channel.BasicConsume(queue=queue, consumer= consumer)  |>ignore
-
-
+        try 
+            let factory = new ConnectionFactory(HostName = ipAMQP, UserName="guest1",Password="guest1")
+            //let factory = new ConnectionFactory(HostName = "localhost", UserName="guest1",Password="guest1")
+            let connection = factory.CreateConnection()
+            let channel = connection.CreateModel()
+            channel.ExchangeDeclare("topic_logs","topic")
+            let queue="mqtt-subscription-MQTToolqos1"
+            channel.QueueDeclare(queue=queue, durable= true, exclusive= false, autoDelete= true, arguments= null) |>ignore
+            //channel.QueueDeclare() |>ignore
+            //let queueName = channel.QueueDeclare().QueueName
+            channel.QueueBind(queue= queue, exchange= "amq.topic", routingKey= "#");
+            let consumer = new EventingBasicConsumer(channel)
+            consumer.Received.AddHandler((fun model ea ->
+                                    let body = ea.Body
+                                    let message = Encoding.UTF8.GetString(body)
+                                    Console.WriteLine(" [x] Received {0}  {1}",ea.RoutingKey, message)
+                                    Server.processQueueMessage ea.RoutingKey message
+                            )) 
+            //channel.BasicConsume(queue= "mqtt-subscription-MQTToolqos1", noAck= true, consumer= consumer)  |>ignore
+            channel.BasicConsume(queue=queue, consumer= consumer)  |>ignore
+        with
+            | ex -> Console.WriteLine(ex.Message)
 
         let ep = Endpoint.Create("http://" + ipServer + ":9000/", "/websocket", JsonEncoding.Readable)
         let proc=ProcessorCreater.Create(ep,Server.Start)

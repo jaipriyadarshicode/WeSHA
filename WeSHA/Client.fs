@@ -9,11 +9,11 @@ open WebSharper.UI.Next.Html
 open WebSharper.UI.Next.Notation
 open WebSharper.Community.Suave.WebSocket
 open WebSharper.Community.Suave.WebSocket.Client
+open WebSharper.Community.Panel
+open WebSharper.Community.Dashboard
 open WebSharper.Charting
 open WebSharper.ChartJs
 
-// A to-do list application, showcasing time-varying collections of elements.
-// See this live at http://intellifactory.github.io/websharper.ui.next/#TodoList.fs !
 
 [<JavaScript>]
 module Client =
@@ -58,18 +58,11 @@ module Client =
         {
             HAItems : ListModel<Key,HAMessageItem>
         }
-
     let haItems=  { HAItems = ListModel.Create (fun item ->item.Key) [] }
     let renderChart (src:Event<double>)= 
         let chart = LiveChart.Line(src.Publish)
         //let c = ChartJs.LineChartConfiguration()
         Renderers.ChartJs.Render(chart(* , Config = c, Window = 10*) )
- (*   let updateLineChart (chart:Charts.LineChart) value = 
-        let nEntries=chart.DataSet.JS|>Seq.length
-        let listData=chart.DataSet|>Seq.l
-        chart.DataSet
-        |>Seq.iteri (fun (ind,entry) ->chart.UpdateData(ind,if ind = listData.Count-9 then value else snd listData[ind])|>ignore) *)
-
     let mutable clientWidth = 0.0
     let RenderHAItem (haItem:HAMessageItem) =    
         let renderChart =     
@@ -93,6 +86,41 @@ module Client =
                  ]
              ]
         ]
+    let panelContainer=PanelContainer.Create
+                                     .WithLayoutManager(LayoutManagers.FloatingPanelLayoutManager 5.0)
+                                     .WithWidth(800.0).WithHeight(450.0)
+                                     .WithAttributes([Attr.Style "border" "1px solid white"])
+    let dashboard = Dashboard.Create panelContainer
+    let processQueueMessage_new queue value = 
+        let source = 
+            match dashboard.SourceItems.TryFind (fun item->
+                                                        Console.Log ("Try find: " + item.Id + " " + queue)
+                                                        item.Id = queue) with
+            | None -> 
+                      let mqttSrc = 
+                                  let outPort = IOutPortNumber(queue)
+                                  {new ISource with
+                                        override x.OutPorts = [outPort]
+                                        override x.Run() = ()
+                                   }
+                      
+                      dashboard.RegisterSource queue mqttSrc
+                      Console.Log ("New item")
+                      let cx = 800.0 - 15.0
+                      let createPanel fnc =
+                          let clientContainer = dashboard.CreatePanel(queue,cx,fnc)
+                          [
+                               Widgets.text()
+                               Widgets.chart(((int)(cx - 270.0)),120,50)
+                          ]|>List.iter (fun widget  ->  mqttSrc.OutPorts.[0].Connect (widget.InPorts.[0])
+                                                        dashboard.RegisterReceiver clientContainer widget
+                                                                 )
+                      createPanel(fun _ -> ())
+                      mqttSrc
+            | Some(found)->found.Source
+        //Console.Log ("Value added:"+source.OutPorts.[0].Name + " " + value.ToString())
+        (source.OutPorts.[0] :?> IOutPortNumber).Trigger value
+
     let processQueueMessage queue value = 
         let haItem=
             match haItems.HAItems.TryFind (fun item->item.queue = queue) with
@@ -114,7 +142,7 @@ module Client =
                             match data with
                             | Server.ResponseString x ->  status.Text <-  (state.ToString() + x)
                             | Server.ResponseValue (queue,value) -> Console.Log ("Message received:" + queue+" " + value.ToString())
-                                                                    processQueueMessage queue value
+                                                                    processQueueMessage_new queue value
                                                                     //haItem.source.Trigger value
                             return (state + 1)
                         | Close ->
@@ -132,34 +160,46 @@ module Client =
         
         }
         |> Async.Start    
+
+
+    //let srcRandom = RandomValueSource.Create :> ISource
+    //dashboard.RegisterSource srcRandom 
+
     let Main (endpoint : Endpoint<Server.S2CMessage, Server.C2SMessage>) =
         let status = h1 []
         procSockets  endpoint status
         let listMessages=
             ListModel.View haItems.HAItems
             |> Doc.BindSeqCachedBy (fun m -> m.Key) (RenderHAItem)
-        
-        TodoExample (div[
-                                  status                        
-                                  listMessages
-                                  
-                                  //.OnResizeView(fun arg1 arg2 arg3 -> Console.Log "OnResizeView")
-                                  //.OnResize(fun arg1 arg->Console.Log "OnResize")
-                        ].OnAfterRender(fun (el) -> 
-                                            clientWidth <- el.ClientWidth
-                                            async {
-                                                Console.Log "Server.GetAllChannels()"
-                                                let! allQueues=Server.GetAllChannels("bla")
-                                                allQueues
-                                                |>Array.iter (fun queue -> async {let! values = Server.GetValues queue chartBufferSize 
-                                                                                  values |>Array.iter (fun value -> Console.Log "old value"
-                                                                                                                    processQueueMessage queue value)
-                                                                                  }|>Async.Start)
-                                                                          // values |>Array.iter (fun value -> processQueueMessage queue value))
-                                            }|> Async.Start
 
-                                       )
-                        )
+        div[
+                     status                        
+                     listMessages
+                     dashboard.Render
+           ].OnAfterRender(fun (el) -> 
+                               clientWidth <- el.ClientWidth
+                               (*
+                               let cx = 800.0 - 15.0
+                               let createPanel fnc =
+                                   let clientContainer = dashboard.CreatePanel(cx,fnc)
+                                   Widgets.text srcRandom |> dashboard.RegisterReceiver clientContainer 
+                                   let receiver = Widgets.chart srcRandom ((int)(cx - 270.0)) 120
+                                   receiver |> dashboard.RegisterReceiver clientContainer 
+                               createPanel(fun _ -> createPanel(fun _->())) *)
+
+                               async {
+                                   Console.Log "Server.GetAllChannels()"
+                                   let! allQueues=Server.GetAllChannels("bla")
+                                   allQueues
+                                   |>Array.iter (fun queue -> async {let! values = Server.GetValues queue chartBufferSize 
+                                                                     values |>Array.iter (fun value -> Console.Log "old value"
+                                                                                                       processQueueMessage queue value)
+                                                                     }|>Async.Start)
+                                                             // values |>Array.iter (fun value -> processQueueMessage queue value))
+                               }|> Async.Start
+
+                          )
+
 
 
 
