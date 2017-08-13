@@ -86,40 +86,21 @@ module Client =
                  ]
              ]
         ]
-    let panelContainer=PanelContainer.Create
-                                     .WithLayoutManager(LayoutManagers.FloatingPanelLayoutManager 5.0)
-                                     .WithWidth(800.0).WithHeight(450.0)
-                                     .WithAttributes([Attr.Style "border" "1px solid white"])
-    let dashboard = Dashboard.Create panelContainer
+    let dashboard = App.CreateDashboard
+
     let processQueueMessage_new queue value = 
         let source = 
-            match dashboard.SourceItems.TryFind (fun item->
-                                                        Console.Log ("Try find: " + item.Id + " " + queue)
-                                                        item.Id = queue) with
+            match dashboard.Data.EventItems.TryFind (fun item->
+                                                        Console.Log ("Try find: " + item.Worker.Key + " " + queue)
+                                                        item.Worker.Key = queue
+                                                        ) with
             | None -> 
-                      let mqttSrc = 
-                                  let outPort = IOutPortNumber(queue)
-                                  {new ISource with
-                                        override x.OutPorts = [outPort]
-                                        override x.Run() = ()
-                                   }
-                      
-                      dashboard.RegisterSource queue mqttSrc
-                      Console.Log ("New item")
-                      let cx = 800.0 - 15.0
-                      let createPanel fnc =
-                          let clientContainer = dashboard.CreatePanel(queue,cx,fnc)
-                          [
-                               Widgets.text()
-                               Widgets.chart(((int)(cx - 270.0)),120,50)
-                          ]|>List.iter (fun widget  ->  mqttSrc.OutPorts.[0].Connect (widget.InPorts.[0])
-                                                        dashboard.RegisterReceiver clientContainer widget
-                                                                 )
-                      createPanel(fun _ -> ())
-                      mqttSrc
-            | Some(found)->found.Source
+                      let worker = MQTTSource(MQTTRunner.Create queue).Worker                    
+                      dashboard.Data.RegisterEvent queue worker
+                      worker
+            | Some(found)->found.Worker
         //Console.Log ("Value added:"+source.OutPorts.[0].Name + " " + value.ToString())
-        (source.OutPorts.[0] :?> IOutPortNumber).Trigger value
+        source.OutPorts.[0].Trigger value
 
     let processQueueMessage queue value = 
         let haItem=
@@ -142,7 +123,7 @@ module Client =
                             match data with
                             | Server.ResponseString x ->  status.Text <-  (state.ToString() + x)
                             | Server.ResponseValue (queue,value) -> Console.Log ("Message received:" + queue+" " + value.ToString())
-                                                                    processQueueMessage_new queue value
+                                                                    processQueueMessage_new queue (MessageBus.Number(value))
                                                                     //haItem.source.Trigger value
                             return (state + 1)
                         | Close ->
