@@ -4,6 +4,7 @@ open WebSharper
 open WebSharper.Sitelets
 open WebSharper.UI.Next
 open WebSharper.UI.Next.Server
+open WebSharper.Community.Dashboard
 
 type EndPoint =
     | [<EndPoint "/">] Home
@@ -66,7 +67,7 @@ module SelfHostedServer =
     open Suave.RequestErrors
     open Suave.Operators
 
-    open System
+    //open System
     open System.Text
     open System.Net
     open System.Net.Sockets
@@ -75,6 +76,13 @@ module SelfHostedServer =
 
     [<EntryPoint>]
     let Main args =
+        Environment.Log <- (fun str -> System.Diagnostics.Debug.WriteLine(str))
+        Environment.Role <- Environment.Server
+
+        let execFolder = (new System.IO.FileInfo(System.Reflection.Assembly.GetExecutingAssembly().Location)).Directory.FullName
+        Environment.DataDirectory <-  System.IO.Path.Combine(execFolder,"../../Data")
+        System.Console.WriteLine(Environment.DataDirectory)
+
         let ipAddress=
             Dns.GetHostAddresses(Dns.GetHostName())
             |>Seq.filter (fun ip->ip.AddressFamily = AddressFamily.InterNetwork)
@@ -85,7 +93,7 @@ module SelfHostedServer =
             | [| ipServer; ipAMQP |] -> ipServer, ipAMQP
             | [| |] -> defIPAddress, "192.168.2.116"
             | _ -> eprintfn "Usage: WeSHA IP_SERVER IP_AMQP "; exit 1
-        Console.WriteLine("ipServer:"+ipServer+" ipAMQP:"+ipAMQP)
+        System.Console.WriteLine("ipServer:"+ipServer+" ipAMQP:"+ipAMQP)
         try 
             let factory = new ConnectionFactory(HostName = ipAMQP, UserName="guest1",Password="guest1")
             //let factory = new ConnectionFactory(HostName = "localhost", UserName="guest1",Password="guest1")
@@ -101,18 +109,19 @@ module SelfHostedServer =
             consumer.Received.AddHandler((fun model ea ->
                                     let body = ea.Body
                                     let message = Encoding.UTF8.GetString(body)
-                                    Console.WriteLine(" [x] Received {0}  {1}",ea.RoutingKey, message)
+                                    System.Console.WriteLine(" [x] Received {0}  {1}",ea.RoutingKey, message)
                                     Server.processQueueMessage ea.RoutingKey message
                             )) 
             //channel.BasicConsume(queue= "mqtt-subscription-MQTToolqos1", noAck= true, consumer= consumer)  |>ignore
             channel.BasicConsume(queue=queue, consumer= consumer)  |>ignore
         with
-            | ex -> Console.WriteLine(ex.Message)
+            | ex -> System.Console.WriteLine(ex.Message)
 
         let ep = Endpoint.Create("http://" + ipServer + ":9000/", "/websocket", JsonEncoding.Readable)
         let proc=ProcessorCreater.Create(ep,Server.Start)
 
         let config={defaultConfig with bindings =[HttpBinding.createSimple HTTP ipServer 9000 ]}
+
 
         let appSuave = 
           choose [

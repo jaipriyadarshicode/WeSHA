@@ -4,15 +4,17 @@ open WebSharper
 
 
 open System
+open System.IO
 open System.Collections.Generic
 open RabbitMQ.Client
 open RabbitMQ.Client.Events
 open System.Text
 open WebSharper
 open WebSharper.Community.Suave.WebSocket.Server
+open WebSharper.Community.Dashboard
 
 module Server =
-
+    let log = Environment.Log
 
     type [<JavaScript; NamedUnionCases>]
         C2SMessage =
@@ -21,56 +23,59 @@ module Server =
         S2CMessage =
         | [<Name "queue_value">] ResponseValue of (string*double)
         | [<Name "string">] ResponseString of value: string
+        | NewConfiguration of AppData
+        | RegisterMQTTEvent of string
 
-   // type GlobalNotification = string // or whatever you need to broadcast to all clients.
 
     /// The agent that stores currently running websocket connections:
 
     type ConnectionsAgentMessage =
         | ClientConnected of (S2CMessage -> Async<unit>) * AsyncReplyChannel<System.Guid>
         | ClientDisconnected of System.Guid
+        | ProcessMQTTEvent of (string*MessageBus.Value)
+        | UpdateConfiguration of AppData
+        | GetConfiguration of (AsyncReplyChannel<AppData>)
         | Broadcast of S2CMessage
-    let queueMsg=Queue<S2CMessage>()
-
-    [<Rpc>]
-    let GetAllChannels (input:string) =
-        async {
-            return
-                queueMsg.ToArray()
-                |> Array.map (fun entry -> match entry with
-                                           | ResponseValue (key,value) -> key)
-                |> Array.distinct
+    //let queueMsg=Queue<S2CMessage>()
+    type ServerState =
+        {
+            Connections:Map<Guid,(S2CMessage -> Async<unit>)>
+            Events:Worker list
+            Data:AppData
         }
-    [<Rpc>]
-    let GetValues (queue:string) count=
-        async {
-                let queueStart=queue.Substring(0,queue.Length-3)
-                let res=
-                    queueMsg.ToArray()
-                    |> Array.map (fun entry -> match entry with
-                                               | ResponseValue (key,value) -> (key,value))
-                    |>Array.filter (fun (key,value) -> key.StartsWith(queueStart))
-                    |>Array.map (fun (key,value) -> value)
-                    |>Array.skip (max 0 (queueMsg.Count - count))
-                    |>Array.take(min count queueMsg.Count)
-                return res
-
-        }
-
+        static member empty =
+            {
+                Connections=Map.empty
+                Events=[]
+                Data = AppData.empty
+            }
     let ConnectionsAgent = MailboxProcessor<ConnectionsAgentMessage>.Start(fun inbox ->
-        let rec loop connections = async {
+        let rec loop state = async {
             let! message = inbox.Receive()
             match message with
             | ClientConnected (onNotification, chan) ->
                 let id = System.Guid.NewGuid()
                 chan.Reply id
-                return! loop (Map.add id onNotification connections)
+                return! loop {state with Connections=(Map.add id onNotification (state.Connections))}
             | ClientDisconnected id ->
-                return! loop (Map.remove id connections)
+                return! loop {state with Connections=(Map.remove id (state.Connections))}
+            | GetConfiguration (channel) -> 
+                channel.Reply(state.Data)
+                return! loop state
+            | UpdateConfiguration (data) -> inbox.Post(Broadcast (NewConfiguration(data)))
+                                            let events=data.RecreateOnServer
+                                            return! loop {state with Data=data; Events = events}
+            | ProcessMQTTEvent (queue,value) ->
+                match state.Events |> List.tryFind (fun worker -> worker.DataContext :? MQTTRunner && worker.InPorts.[0].String = queue) with
+                |None -> inbox.Post(Broadcast(RegisterMQTTEvent(queue)))
+                |Some(_) -> ()
+                MessageBus.Agent.Post(MessageBus.Send(MessageBus.CreateKeyValue queue value))
+                let newEvent=MQTTSource(MQTTRunner.Create queue).Worker.WithKey(queue)
+                return! loop {state with Events=newEvent::state.Events}
             | Broadcast notification ->
                 // Using Async.Start here instead of awaiting with do!
                 // because we don't want to delay this agent while broadcasting the notification.
-                do connections
+                do (state.Connections)
                     |> Seq.map (fun (KeyValue(_, f)) -> async {
                         try 
                             return! f notification
@@ -83,22 +88,28 @@ module Server =
                     |> Async.Parallel
                     |> Async.Ignore
                     |> Async.Start
-                return! loop connections
+                return! loop state
         }
-        loop Map.empty
+        loop ServerState.empty
     )
     let processQueueMessage queue (message:string) =
         try
-            let srvMessage=ResponseValue (queue,System.Double.Parse(message))
-            ConnectionsAgent.Post (Broadcast srvMessage)
-            queueMsg.Enqueue(srvMessage)
-            if queueMsg.Count > 1000 then 
-                queueMsg.Dequeue()|>ignore
+            let value = System.Double.Parse(message)
+            let srvMessage=ResponseValue (queue,value)
+
+
+            ConnectionsAgent.Post(ProcessMQTTEvent(queue,MessageBus.Number(value)))
         with
         | ex -> Console.WriteLine(ex.Message)
-
+    let configPath() = Path.Combine(Environment.DataDirectory,"Default.cfg")
     let Start : StatefulAgent<S2CMessage, C2SMessage, int> =
         Console.WriteLine("Start")
+        Console.WriteLine("Try to load configuration from:"+configPath())
+        if File.Exists(configPath()) then 
+            let json = System.IO.File.ReadAllText(configPath())
+            let data = Json.Deserialize<AppData> json
+            Console.WriteLine("OK")
+            ConnectionsAgent.Post (UpdateConfiguration(data))
         let dprintfn x =
             Printf.ksprintf (fun s ->
                 System.Diagnostics.Debug.WriteLine s
@@ -120,3 +131,14 @@ module Server =
                                return state + 1
                 }
          }
+    [<Rpc>]
+    let UploadClientConfig (data:AppData)=
+        ConnectionsAgent.Post (UpdateConfiguration(data))
+        if Directory.Exists(Environment.DataDirectory) then
+            let json = Json.Serialize<AppData> data
+            System.IO.File.WriteAllText(configPath(),json)
+            sprintf "Configuration was written to %s:" (configPath()) |> log
+            
+    [<Rpc>]
+    let GetConfiguration () = 
+        ConnectionsAgent.PostAndReply(fun r -> GetConfiguration(r))        
