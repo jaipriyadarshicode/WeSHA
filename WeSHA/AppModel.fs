@@ -12,10 +12,6 @@ open WebSharper.Community.Panel
 type AppModel =
     |AppLib of AppModelLib
     |MQTTSource of MQTTRunner
-//    member x.Worker =
-//        match x with 
-//        |AppLib(src) -> src.Worker
-//        |MQTTSource(src) -> Worker.CreateWithRunner src
     static member ToWorker (appData:AppModel) = 
         match appData with 
         |AppLib(src) -> src.Worker
@@ -30,7 +26,7 @@ type AppModel =
         match worker |> AppModelLib.FromWorker with
         |Some(appModel) -> AppLib(appModel)
         |_ -> match worker.DataContext  with 
-              | :? MQTTRunner as src ->  MQTTSource(MQTTRunner.FromPorts worker)
+              | :? MQTTRunner as src ->  MQTTSource(MQTTRunner.FromWorker worker)
               |_ -> failwith("AllTypes FromWorker unknown type")
 
 [<JavaScript>]          
