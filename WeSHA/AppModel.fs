@@ -12,11 +12,14 @@ open WebSharper.Community.Panel
 type AppModel =
     |AppLib of AppModelLib
     |MQTTSource of MQTTRunner
-    member x.Worker =
-        match x with 
+//    member x.Worker =
+//        match x with 
+//        |AppLib(src) -> src.Worker
+//        |MQTTSource(src) -> Worker.CreateWithRunner src
+    static member ToWorker (appData:AppModel) = 
+        match appData with 
         |AppLib(src) -> src.Worker
         |MQTTSource(src) -> Worker.CreateWithRunner src
-
     static member FromDataContext (data:IWorkerContext)=
         match data |> AppModelLib.FromDataContext with
         |Some(appModel) -> AppLib(appModel)

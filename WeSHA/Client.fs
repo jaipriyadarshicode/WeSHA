@@ -22,7 +22,7 @@ module Client =
     let log str = str |> Environment.Log
     let dashboard = App.CreateDashboard
     let data=Server.GetConfiguration()
-    data.RecreateOnClient dashboard (App.PanelContainerCreator)
+    data.RecreateOnClientEventsRunning dashboard (App.PanelContainerCreator) AppModel.ToWorker
     MessageBus.RunServerRequests()
     if dashboard.Data.EventGroups.Length = 0 then
         dashboard.Restore (App.PanelContainerCreator) [("MQTT",[])] [] []
@@ -35,7 +35,7 @@ module Client =
                                                         item.Worker.Key = queue
                                                         ) with
             | None -> 
-                      let worker = MQTTSource(MQTTRunner.Create queue).Worker   
+                      let worker = MQTTSource(MQTTRunner.Create queue) |> AppModel.ToWorker  
                       let gr = dashboard.Data.EventGroups |> List.ofSeq |> List.head            
                       dashboard.Data.RegisterEvent queue gr worker
                       worker
@@ -57,11 +57,11 @@ module Client =
                                                                     processQueueMessage_new queue (MessageBus.Number(value))
                             | Server.RegisterMQTTEvent (queue) ->
                                                       log "RegisterMQTTEvent" 
-                                                      let worker = MQTTSource(MQTTRunner.Create queue).Worker   
+                                                      let worker = MQTTSource(MQTTRunner.Create queue) |> AppModel.ToWorker   
                                                       let gr = dashboard.Data.EventGroups |> List.ofSeq |> List.head            
                                                       dashboard.Data.RegisterEvent queue gr worker
                             | Server.NewConfiguration(data) -> 
-                                                            data.RecreateOnClient dashboard (App.PanelContainerCreator)
+                                                            data.RecreateOnClientEventsNotRunning dashboard (App.PanelContainerCreator) AppModel.ToWorker   
                                                             //MessageBus.RunServerRequests()
                             return (state + 1)
                         | Close ->
@@ -88,7 +88,7 @@ module Client =
         let menu =
            div[
             td[Helper.TxtIconNormal "archive" "Upload" (fun _ ->  
-                                     let data =  AppData.Create dashboard
+                                     let data =  AppData<AppModel>.Create dashboard AppModel.FromWorker
                                      Server.UploadClientConfig(data)
                                )]
           ]

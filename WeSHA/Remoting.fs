@@ -23,7 +23,7 @@ module Server =
         S2CMessage =
         | [<Name "queue_value">] ResponseValue of (string*double)
         | [<Name "string">] ResponseString of value: string
-        | NewConfiguration of AppData
+        | NewConfiguration of AppData<AppModel>
         | RegisterMQTTEvent of string
 
 
@@ -33,21 +33,21 @@ module Server =
         | ClientConnected of (S2CMessage -> Async<unit>) * AsyncReplyChannel<System.Guid>
         | ClientDisconnected of System.Guid
         | ProcessMQTTEvent of (string*MessageBus.Value)
-        | UpdateConfiguration of AppData
-        | GetConfiguration of (AsyncReplyChannel<AppData>)
+        | UpdateConfiguration of AppData<AppModel>
+        | GetConfiguration of (AsyncReplyChannel<AppData<AppModel>>)
         | Broadcast of S2CMessage
     //let queueMsg=Queue<S2CMessage>()
     type ServerState =
         {
             Connections:Map<Guid,(S2CMessage -> Async<unit>)>
             Events:Worker list
-            Data:AppData
+            Data:AppData<AppModel>
         }
         static member empty =
             {
                 Connections=Map.empty
                 Events=[]
-                Data = AppData.empty
+                Data = AppData<AppModel>.empty()
             }
     let ConnectionsAgent = MailboxProcessor<ConnectionsAgentMessage>.Start(fun inbox ->
         let rec loop state = async {
@@ -63,15 +63,15 @@ module Server =
                 channel.Reply(state.Data)
                 return! loop state
             | UpdateConfiguration (data) -> inbox.Post(Broadcast (NewConfiguration(data)))
-                                            let events=data.RecreateOnServer
+                                            let events=data.RecreateOnServer AppModel.ToWorker
                                             return! loop {state with Data=data; Events = events}
             | ProcessMQTTEvent (queue,value) ->
                 match state.Events |> List.tryFind (fun worker -> worker.DataContext :? MQTTRunner && worker.InPorts.[0].String = queue) with
                 |None -> inbox.Post(Broadcast(RegisterMQTTEvent(queue)))
                 |Some(_) -> ()
-                MessageBus.Agent.Post(MessageBus.Send(MessageBus.CreateKeyValue queue value))
-                let newEvent=MQTTSource(MQTTRunner.Create queue).Worker.WithKey(queue)
-                return! loop {state with Events=newEvent::state.Events}
+                MessageBus.Agent.Post(MessageBus.Send(MessageBus.CreateMessage queue value))
+                let newEvent=MQTTSource(MQTTRunner.Create queue) |> AppModel.ToWorker
+                return! loop {state with Events=newEvent.WithKey(queue)::state.Events}
             | Broadcast notification ->
                 // Using Async.Start here instead of awaiting with do!
                 // because we don't want to delay this agent while broadcasting the notification.
@@ -107,7 +107,7 @@ module Server =
         Console.WriteLine("Try to load configuration from:"+configPath())
         if File.Exists(configPath()) then 
             let json = System.IO.File.ReadAllText(configPath())
-            let data = Json.Deserialize<AppData> json
+            let data = Json.Deserialize<AppData<AppModel>> json
             Console.WriteLine("OK")
             ConnectionsAgent.Post (UpdateConfiguration(data))
         let dprintfn x =
@@ -132,10 +132,10 @@ module Server =
                 }
          }
     [<Rpc>]
-    let UploadClientConfig (data:AppData)=
+    let UploadClientConfig (data:AppData<AppModel>)=
         ConnectionsAgent.Post (UpdateConfiguration(data))
         if Directory.Exists(Environment.DataDirectory) then
-            let json = Json.Serialize<AppData> data
+            let json = Json.Serialize<AppData<AppModel>> data
             System.IO.File.WriteAllText(configPath(),json)
             sprintf "Configuration was written to %s:" (configPath()) |> log
             
