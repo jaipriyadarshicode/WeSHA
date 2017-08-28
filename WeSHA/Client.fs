@@ -20,7 +20,7 @@ module Client =
 
     Environment.Log <- (fun str -> Console.Log(str))
     let log str = str |> Environment.Log
-    let dashboard = App.CreateDashboard
+    let dashboard = AppWeSHA.CreateDashboard 
     let data=Server.GetConfiguration()
     data.RecreateOnClientEventsRunning dashboard (App.PanelContainerCreator) AppModel.ToWorker
     MessageBus.RunServerRequests()
