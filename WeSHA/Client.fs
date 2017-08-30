@@ -25,7 +25,7 @@ module Client =
     data.RecreateOnClientEventsRunning dashboard (App.PanelContainerCreator) AppModel.ToWorker
     MessageBus.RunServerRequests()
     if dashboard.Data.EventGroups.Length = 0 then
-        dashboard.Restore (App.PanelContainerCreator) [("MQTT",[])] [] []
+        dashboard.Restore (App.PanelContainerCreator) [("MQTT",[])] [] [] |> ignore
 
     let processQueueMessage_new queue value = 
         let source = 

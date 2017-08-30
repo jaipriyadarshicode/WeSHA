@@ -15,22 +15,21 @@ type AppModel =
     static member ToWorker (appData:AppModel) = 
         match appData with 
         |AppLib(src) -> src |> AppModelLib.ToWorker
-        |MQTTSource(src) -> Worker.CreateWithRunner src
+        |MQTTSource(src) -> Worker.Create src
 
     static member FromWorker (worker:Worker)= 
         match worker |> AppModelLib.FromWorker with
         |Some(appModel) -> Some(AppLib(appModel))
-        |_ -> match worker.DataContext  with 
+        |_ -> match worker.Data  with 
               | :? MQTTRunner as src ->  Some(MQTTSource(MQTTRunner.FromWorker worker))
-              |_ -> None //failwith("AllTypes FromWorker unknown type")
+              |_ -> None 
 
 [<JavaScript>]          
 module AppWeSHA =
-    let Register dashboard = 
-         MQTTRunner.Create "" |> App.RegisterEventGeneral dashboard AppModel.FromWorker AppModel.ToWorker
-         dashboard
-         //WebSharper.Community.Dashboard.App.Register  AppModel.FromWorker AppModel.ToWorker dashboard
 
     let CreateDashboard =
-        let dashboard = App.CreateDashboard  AppModel.FromWorker AppModel.ToWorker
-        dashboard |> Register
+        let dashboard = App.CreateDashboard
+
+        MQTTRunner.Create "" |> App.RegisterEventGeneral dashboard
+
+        dashboard

@@ -66,7 +66,7 @@ module Server =
                                             let events=data.RecreateOnServer AppModel.ToWorker
                                             return! loop {state with Data=data; Events = events}
             | ProcessMQTTEvent (queue,value) ->
-                match state.Events |> List.tryFind (fun worker -> worker.DataContext :? MQTTRunner && worker.InPorts.[0].String = queue) with
+                match state.Events |> List.tryFind (fun worker -> worker.Data :? MQTTRunner && worker.InPorts.[0].String = queue) with
                 |None -> inbox.Post(Broadcast(RegisterMQTTEvent(queue)))
                 |Some(_) -> ()
                 MessageBus.Agent.Post(MessageBus.Send(MessageBus.CreateMessage queue value))

@@ -16,10 +16,11 @@ type MQTTRunner =
                                           MQTTRunnerData = WorkerData.Create name [("MQTTKey",MessageBus.StringMessage mqttKey)] [("Value",MessageBus.NumberMessage 0.0)]
                                   }
  static member FromWorker = (fun (worker:Worker) -> {MQTTRunnerData = worker.ToData })
- interface IWorkerContext with
+ interface IWorkerData with
     override x.Data = x.MQTTRunnerData
- interface IRunner with
-        override x.Run= (fun worker -> None)
+    override x.Run= None
+    override x.Render= None
+
 
 
 
