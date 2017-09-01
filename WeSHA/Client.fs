@@ -17,6 +17,8 @@ open WebSharper.ChartJs
 
 [<JavaScript>]
 [<Require(typeof<WebSharper.Community.PropertyGrid.Resources.StyleResource>)>]
+[<Require(typeof<WebSharper.Community.Panel.Resources.StyleResource>)>]
+[<Require(typeof<WebSharper.Community.Dashboard.Resources.StyleResource>)>]
 module Client =
 
     Environment.Log <- (fun str -> Console.Log(str))
