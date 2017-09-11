@@ -23,10 +23,17 @@ module Client =
 
     Environment.Log <- (fun str -> Console.Log(str))
     let log str = str |> Environment.Log
-    let dashboard = AppWeSHA.CreateDashboard 
-    let data=Server.GetConfiguration()
-    data.RecreateOnClientEventsRunning dashboard (App.PanelContainerCreator) AppModel.ToWorker
+    let dashboard = AppWeSHA.CreateDashboard
     MessageBus.RunServerRequests()
+    Environment.UpdateConfiguration <- (fun json -> 
+                                                try
+                                                    let data = Json.Deserialize<AppData<AppModel>> json
+                                                    data.RecreateOnClientEventsNotRunning dashboard (App.PanelContainerCreator) 
+                                                                                (AppModel.ToWorker:AppModel->Worker)
+                                                    "Configuration updated" |> log
+                                                with
+                                                |ex -> ex.Message |> log
+                                       )
     if dashboard.Data.EventGroups.Length = 0 then
         dashboard.Restore (App.PanelContainerCreator) [("MQTT",[])] [] [] |> ignore
 
@@ -63,8 +70,8 @@ module Client =
                                                       let worker = MQTTSource(MQTTRunner.Create queue) |> AppModel.ToWorker   
                                                       let gr = dashboard.Data.EventGroups |> List.ofSeq |> List.head            
                                                       dashboard.Data.RegisterEvent queue gr worker
-                            | Server.NewConfiguration(data) -> 
-                                                            data.RecreateOnClientEventsNotRunning dashboard (App.PanelContainerCreator) AppModel.ToWorker   
+//                            | Server.NewConfiguration(data) -> 
+//                                                            data.RecreateOnClientEventsNotRunning dashboard (App.PanelContainerCreator) AppModel.ToWorker   
                                                             //MessageBus.RunServerRequests()
                             return (state + 1)
                         | Close ->
@@ -88,12 +95,20 @@ module Client =
         let status = h1 []
         procSockets  endpoint status
 
+        let tbCellC content =td content
         let menu =
            div[
-            td[Helper.TxtIconNormal "archive" "Upload" (fun _ ->  
-                                     let data =  AppData<AppModel>.Create dashboard AppModel.FromWorker
-                                     Server.UploadClientConfig(data)
-                               )]
+            tbCellC[Helper.TxtIconNormal "autorenew" "Refresh" (fun _ ->  
+                                          let data = AppData<AppModel>.Create dashboard (AppModel.FromWorker)
+                                          data.RecreateOnClientEventsRunning 
+                                           dashboard (App.PanelContainerCreator) 
+                                           (AppModel.ToWorker:AppModel->Worker)
+                                          )]
+
+            tbCellC[Helper.TxtIconNormal "archive" "Upload" (fun _ ->  
+                                          let data =  AppData<AppModel>.Create dashboard (AppModel.FromWorker)
+                                          Server.Upload(data)
+                                    )]
           ]
 
         div[

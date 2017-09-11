@@ -23,7 +23,7 @@ module Server =
         S2CMessage =
         | [<Name "queue_value">] ResponseValue of (string*double)
         | [<Name "string">] ResponseString of value: string
-        | NewConfiguration of AppData<AppModel>
+      //  | NewConfiguration of AppData<AppModel>
         | RegisterMQTTEvent of string
 
 
@@ -33,8 +33,8 @@ module Server =
         | ClientConnected of (S2CMessage -> Async<unit>) * AsyncReplyChannel<System.Guid>
         | ClientDisconnected of System.Guid
         | ProcessMQTTEvent of (string*MessageBus.Value)
-        | UpdateConfiguration of AppData<AppModel>
-        | GetConfiguration of (AsyncReplyChannel<AppData<AppModel>>)
+//        | UpdateConfiguration of AppData<AppModel>
+//        | GetConfiguration of (AsyncReplyChannel<AppData<AppModel>>)
         | Broadcast of S2CMessage
     //let queueMsg=Queue<S2CMessage>()
     type ServerState =
@@ -59,17 +59,17 @@ module Server =
                 return! loop {state with Connections=(Map.add id onNotification (state.Connections))}
             | ClientDisconnected id ->
                 return! loop {state with Connections=(Map.remove id (state.Connections))}
-            | GetConfiguration (channel) -> 
-                channel.Reply(state.Data)
-                return! loop state
-            | UpdateConfiguration (data) -> inbox.Post(Broadcast (NewConfiguration(data)))
-                                            let events=data.RecreateOnServer AppModel.ToWorker
-                                            return! loop {state with Data=data; Events = events}
+//            | GetConfiguration (channel) -> 
+//                channel.Reply(state.Data)
+//                return! loop state
+//            | UpdateConfiguration (data) -> inbox.Post(Broadcast (NewConfiguration(data)))
+//                                            let events=data.RecreateOnServer (Json.Serialize<AppData<AppModel>> data) AppModel.ToWorker
+//                                            return! loop {state with Data=data; Events = events}
             | ProcessMQTTEvent (queue,value) ->
                 match state.Events |> List.tryFind (fun worker -> worker.Data :? MQTTRunner && worker.InPorts.[0].String = queue) with
                 |None -> inbox.Post(Broadcast(RegisterMQTTEvent(queue)))
                 |Some(_) -> ()
-                MessageBus.Agent.Post(MessageBus.Send(MessageBus.CreateMessage queue value))
+                MessageBus.Agent.Post(MessageBus.Send((MessageBus.CreateMessage value).WithKey(queue)))
                 let newEvent=MQTTSource(MQTTRunner.Create queue) |> AppModel.ToWorker
                 return! loop {state with Events=newEvent.WithKey(queue)::state.Events}
             | Broadcast notification ->
@@ -109,7 +109,7 @@ module Server =
             let json = System.IO.File.ReadAllText(configPath())
             let data = Json.Deserialize<AppData<AppModel>> json
             Console.WriteLine("OK")
-            ConnectionsAgent.Post (UpdateConfiguration(data))
+//            ConnectionsAgent.Post (UpdateConfiguration(data))
         let dprintfn x =
             Printf.ksprintf (fun s ->
                 System.Diagnostics.Debug.WriteLine s
@@ -131,14 +131,27 @@ module Server =
                                return state + 1
                 }
          }
-    [<Rpc>]
-    let UploadClientConfig (data:AppData<AppModel>)=
-        ConnectionsAgent.Post (UpdateConfiguration(data))
-        if Directory.Exists(Environment.DataDirectory) then
-            let json = Json.Serialize<AppData<AppModel>> data
-            System.IO.File.WriteAllText(configPath(),json)
-            sprintf "Configuration was written to %s:" (configPath()) |> log
+//    [<Rpc>]
+//    let UploadClientConfig (data:AppData<AppModel>)=
+//        ConnectionsAgent.Post (UpdateConfiguration(data))
+//        if Directory.Exists(Environment.DataDirectory) then
+//            let json = Json.Serialize<AppData<AppModel>> data
+//            System.IO.File.WriteAllText(configPath(),json)
+//            sprintf "Configuration was written to %s:" (configPath()) |> log
             
+//    [<Rpc>]
+//    let GetConfiguration () = 
+//        ConnectionsAgent.PostAndReply(fun r -> GetConfiguration(r))        
+
+    let recreateOnServer (data:AppData<AppModel>) = 
+        data.RecreateOnServer (Json.Serialize<AppData<AppModel>> data) (AppModel.ToWorker:AppModel->Worker) |>ignore
+
     [<Rpc>]
-    let GetConfiguration () = 
-        ConnectionsAgent.PostAndReply(fun r -> GetConfiguration(r))        
+    let Upload (data:AppData<AppModel>) = 
+        System.Diagnostics.Debug.WriteLine("!!! Server.Upload "+Environment.DataDirectory)
+
+        let json = Json.Serialize<AppData<AppModel>> data
+        configPath() |> log
+        System.IO.File.WriteAllText(configPath(),json)
+        data |> recreateOnServer
+        
