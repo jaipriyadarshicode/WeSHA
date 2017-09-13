@@ -21,9 +21,6 @@ module Server =
         | RequestRefresh of str: string    
     and [<JavaScript; NamedUnionCases "type">]
         S2CMessage =
-        | [<Name "queue_value">] ResponseValue of (string*double)
-        | [<Name "string">] ResponseString of value: string
-      //  | NewConfiguration of AppData<AppModel>
         | RegisterMQTTEvent of string
 
 
@@ -33,10 +30,8 @@ module Server =
         | ClientConnected of (S2CMessage -> Async<unit>) * AsyncReplyChannel<System.Guid>
         | ClientDisconnected of System.Guid
         | ProcessMQTTEvent of (string*MessageBus.Value)
-//        | UpdateConfiguration of AppData<AppModel>
-//        | GetConfiguration of (AsyncReplyChannel<AppData<AppModel>>)
+        | UpdateWorkers of Worker list
         | Broadcast of S2CMessage
-    //let queueMsg=Queue<S2CMessage>()
     type ServerState =
         {
             Connections:Map<Guid,(S2CMessage -> Async<unit>)>
@@ -59,19 +54,22 @@ module Server =
                 return! loop {state with Connections=(Map.add id onNotification (state.Connections))}
             | ClientDisconnected id ->
                 return! loop {state with Connections=(Map.remove id (state.Connections))}
-//            | GetConfiguration (channel) -> 
-//                channel.Reply(state.Data)
-//                return! loop state
-//            | UpdateConfiguration (data) -> inbox.Post(Broadcast (NewConfiguration(data)))
-//                                            let events=data.RecreateOnServer (Json.Serialize<AppData<AppModel>> data) AppModel.ToWorker
-//                                            return! loop {state with Data=data; Events = events}
+            | UpdateWorkers (workers) ->  return! loop {state with Events=workers}
+
             | ProcessMQTTEvent (queue,value) ->
-                match state.Events |> List.tryFind (fun worker -> worker.Data :? MQTTRunner && worker.InPorts.[0].String = queue) with
-                |None -> inbox.Post(Broadcast(RegisterMQTTEvent(queue)))
-                |Some(_) -> ()
-                MessageBus.Agent.Post(MessageBus.Send((MessageBus.CreateMessage value).WithKey(queue)))
-                let newEvent=MQTTSource(MQTTRunner.Create queue) |> AppModel.ToWorker
-                return! loop {state with Events=newEvent.WithKey(queue)::state.Events}
+                try
+                    let checkEvent (worker:Worker) = worker.Data :? MQTTRunner && worker.InPorts.[0].String = queue
+                    let events = 
+                        match state.Events |> List.tryFind checkEvent with
+                        |None -> inbox.Post(Broadcast(RegisterMQTTEvent(queue)))
+                                 let newEvent=MQTTSource(MQTTRunner.Create queue) |> AppModel.ToWorker
+                                 newEvent.WithKey(queue)::state.Events
+                        |Some(_) -> state.Events
+                    events|> List.filter checkEvent |> List.iter (fun event -> event.OutPorts.[0].Trigger value) 
+                    return! loop {state with Events=events}
+                with 
+                |ex -> ex.Message |> log
+                       return! loop state
             | Broadcast notification ->
                 // Using Async.Start here instead of awaiting with do!
                 // because we don't want to delay this agent while broadcasting the notification.
@@ -92,12 +90,13 @@ module Server =
         }
         loop ServerState.empty
     )
+    let recreateOnServer (data:AppData<AppModel>) = 
+        let workers = data.RecreateOnServer (Json.Serialize<AppData<AppModel>> data) (AppModel.ToWorker:AppModel->Worker)
+        ConnectionsAgent.Post(UpdateWorkers(workers))
+
     let processQueueMessage queue (message:string) =
         try
             let value = System.Double.Parse(message)
-            let srvMessage=ResponseValue (queue,value)
-
-
             ConnectionsAgent.Post(ProcessMQTTEvent(queue,MessageBus.Number(value)))
         with
         | ex -> Console.WriteLine(ex.Message)
@@ -109,6 +108,7 @@ module Server =
             let json = System.IO.File.ReadAllText(configPath())
             let data = Json.Deserialize<AppData<AppModel>> json
             Console.WriteLine("OK")
+            data |> recreateOnServer |> ignore
 //            ConnectionsAgent.Post (UpdateConfiguration(data))
         let dprintfn x =
             Printf.ksprintf (fun s ->
@@ -131,21 +131,7 @@ module Server =
                                return state + 1
                 }
          }
-//    [<Rpc>]
-//    let UploadClientConfig (data:AppData<AppModel>)=
-//        ConnectionsAgent.Post (UpdateConfiguration(data))
-//        if Directory.Exists(Environment.DataDirectory) then
-//            let json = Json.Serialize<AppData<AppModel>> data
-//            System.IO.File.WriteAllText(configPath(),json)
-//            sprintf "Configuration was written to %s:" (configPath()) |> log
-            
-//    [<Rpc>]
-//    let GetConfiguration () = 
-//        ConnectionsAgent.PostAndReply(fun r -> GetConfiguration(r))        
-
-    let recreateOnServer (data:AppData<AppModel>) = 
-        data.RecreateOnServer (Json.Serialize<AppData<AppModel>> data) (AppModel.ToWorker:AppModel->Worker) |>ignore
-
+      
     [<Rpc>]
     let Upload (data:AppData<AppModel>) = 
         System.Diagnostics.Debug.WriteLine("!!! Server.Upload "+Environment.DataDirectory)

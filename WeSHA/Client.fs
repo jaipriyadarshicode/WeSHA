@@ -62,17 +62,11 @@ module Client =
                         match msg with
                         | Message data ->
                             match data with
-                            | Server.ResponseString x ->  status.Text <-  (state.ToString() + x)
-                            | Server.ResponseValue (queue,value) -> log ("Message received:" + queue+" " + value.ToString())
-                                                                    processQueueMessage_new queue (MessageBus.Number(value))
                             | Server.RegisterMQTTEvent (queue) ->
                                                       log "RegisterMQTTEvent" 
                                                       let worker = MQTTSource(MQTTRunner.Create queue) |> AppModel.ToWorker   
                                                       let gr = dashboard.Data.EventGroups |> List.ofSeq |> List.head            
                                                       dashboard.Data.RegisterEvent queue gr worker
-//                            | Server.NewConfiguration(data) -> 
-//                                                            data.RecreateOnClientEventsNotRunning dashboard (App.PanelContainerCreator) AppModel.ToWorker   
-                                                            //MessageBus.RunServerRequests()
                             return (state + 1)
                         | Close ->
                             Console.Log "Connection closed."
