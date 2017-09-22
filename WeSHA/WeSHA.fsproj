@@ -141,7 +141,7 @@
       <Private>True</Private>
     </Reference>
     <Reference Include="WebSharper.Community.Suave.WebSocket">
-      <HintPath>..\..\WebSharper.Community.Suave.WebSocket\WebSharper.Community.Suave.WebSocket\bin\Debug\WebSharper.Community.Suave.WebSocket.dll</HintPath>
+      <HintPath>..\..\WebSharper.Community.Suave.WebSocket\WebSharper.Community.Suave.WebSocket\bin\Release\WebSharper.Community.Suave.WebSocket.dll</HintPath>
     </Reference>
     <Reference Include="WebSharper.Control">
       <HintPath>..\packages\WebSharper.4.0.192.106\lib\net40\WebSharper.Control.dll</HintPath>
